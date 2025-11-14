@@ -70,8 +70,7 @@ def check_alarms_loop(poll_seconds: int = 5):
     print("🔥 THREAD RODANDO DE VERDADE!")
     while True:
         print("🔁 Loop ativo — verificando alarmes...")
-        alarms = get_alarms()
-        print("📦 Alarmes recebidos:", alarms)
+        print("🕒 Horário local do servidor:", datetime.now())
 
         try:
             now = datetime.now()
@@ -156,3 +155,4 @@ def start_background_thread():
 def start_thread():
     print("🚀 Iniciando thread de monitoramento...")
     start_background_thread()
+
