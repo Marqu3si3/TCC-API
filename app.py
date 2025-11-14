@@ -79,6 +79,10 @@ def check_alarms_loop(poll_seconds: int = 5):
     print("🔥 THREAD RODANDO: check_alarms_loop começou de verdade!")
     while True:
         print("🔁 Loop ativo — verificando alarmes...")
+        print("⏳ Buscando alarmes no Supabase...")
+        alarms = get_alarms()
+        print("📦 Alarmes recebidos:", alarms)
+
         try:
             now = datetime.now()
             now_str = now.strftime("%H:%M")
@@ -163,6 +167,7 @@ def start_background_thread():
 def start_thread():
     print("🚀 Iniciando thread de monitoramento (Render)...")
     start_background_thread()
+
 
 
 
