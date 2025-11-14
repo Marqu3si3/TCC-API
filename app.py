@@ -1,6 +1,6 @@
 import time
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from supabase import create_client, Client
 import platform
 from os import system
@@ -19,9 +19,8 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 WEEKDAY_MAP = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
 # ==============================
-# ESTADO DO LED (para o ESP consultar)
+# ESTADO DO LED
 # ==============================
-# valor: "sim" ou "nao"
 estado_led = {"valor": "nao"}
 estado_lock = threading.Lock()
 
@@ -37,7 +36,6 @@ def clear_terminal():
 
 
 def get_alarms():
-    """Busca todos os alarmes ativos do banco."""
     try:
         response = supabase.table("alarms").select("*").eq("enabled", True).execute()
         return response.data if response.data else []
@@ -47,10 +45,9 @@ def get_alarms():
 
 
 # ==============================
-# LÓGICA DO ALARME (sem serial)
+# LÓGICA DO ALARME
 # ==============================
 def set_estado(valor: str):
-    """Seta o estado do LED de forma thread-safe ("sim" ou "nao")."""
     if valor not in ("sim", "nao"):
         return False
     with estado_lock:
@@ -60,26 +57,19 @@ def set_estado(valor: str):
 
 
 def trigger_alarm(label, alarm_time, mode):
-    """Executa ações quando o alarme dispara: setar 'sim' por 10s e voltar."""
     print("\n" + "=" * 50)
     print(f"🔥 ALERTA! Alarme '{label}' disparou ({alarm_time})")
     print("=" * 50 + "\n")
 
-    # acende (API passa a responder "sim")
     set_estado("sim")
-
-    # duração do alerta (pode ajustar)
     time.sleep(10)
-
-    # volta ao estado "nao"
     set_estado("nao")
 
 
 def check_alarms_loop(poll_seconds: int = 5):
-    print("🔥 THREAD RODANDO: check_alarms_loop começou de verdade!")
+    print("🔥 THREAD RODANDO DE VERDADE!")
     while True:
         print("🔁 Loop ativo — verificando alarmes...")
-        print("⏳ Buscando alarmes no Supabase...")
         alarms = get_alarms()
         print("📦 Alarmes recebidos:", alarms)
 
@@ -88,20 +78,25 @@ def check_alarms_loop(poll_seconds: int = 5):
             now_str = now.strftime("%H:%M")
             today = WEEKDAY_MAP[now.weekday()]
 
-            alarms = get_alarms()
-
             for alarm in alarms:
                 alarm_time = alarm.get("time")
                 label = alarm.get("label") or f"Alarme {alarm_time}"
-                mode = alarm.get("mode") or "short"
                 days = alarm.get("days") or WEEKDAY_MAP
 
-                if today in days:
-                    if alarm_time == now_str:
-                        # dispara sem bloquear a verificação de outros alarmes
-                        # (trigger_alarm faz sleep(10) — já é rápido; se quiser paralelizar, criar threads por alarme)
-                        trigger_alarm(label, alarm_time, mode)
-                # else: não toca hoje
+                if today not in days:
+                    continue
+
+                # ==============================
+                # SOLUÇÃO 1 — intervalo de disparo de 60 segundos
+                # ==============================
+                alarm_dt = datetime.strptime(alarm_time, "%H:%M")
+                alarm_dt = now.replace(hour=alarm_dt.hour, minute=alarm_dt.minute, second=0, microsecond=0)
+
+                window_start = alarm_dt
+                window_end = alarm_dt + timedelta(seconds=59)
+
+                if window_start <= now <= window_end:
+                    trigger_alarm(label, alarm_time, alarm.get("mode"))
         except Exception as e:
             print(f"[ERRO] no loop de alarmes: {e}")
 
@@ -109,7 +104,7 @@ def check_alarms_loop(poll_seconds: int = 5):
 
 
 # ==============================
-# API (FastAPI)
+# API FASTAPI
 # ==============================
 app = FastAPI()
 
@@ -125,21 +120,18 @@ def home():
 
 @app.get("/estado-led")
 def get_estado_led():
-    """Endpoint que o ESP32 consulta para saber se deve acender o LED."""
     with estado_lock:
         return {"led": estado_led["valor"]}
 
 
 @app.post("/estado-led")
 def post_estado_led(req: EstadoRequest):
-    """Atualiza manualmente o estado do LED (útil para testes)."""
     ok = set_estado(req.valor)
     if not ok:
-        return {"erro": "valor inválido, use 'sim' ou 'nao'"}
+        return {"erro": "valor inválido"}
     return {"mensagem": "estado atualizado", "novo_estado": req.valor}
 
 
-# endpoints auxiliares para ligar/desligar via GET (opcional)
 @app.get("/ligar")
 def ligar():
     set_estado("sim")
@@ -153,21 +145,14 @@ def desligar():
 
 
 # ==============================
-# START: thread de alarmes + uvicorn
+# THREAD DE FUNDO
 # ==============================
 def start_background_thread():
     t = threading.Thread(target=check_alarms_loop, args=(5,), daemon=True)
     t.start()
 
 
-# ==============================
-# FASTAPI EVENT — inicia thread no Render
-# ==============================
 @app.on_event("startup")
 def start_thread():
-    print("🚀 Iniciando thread de monitoramento (Render)...")
+    print("🚀 Iniciando thread de monitoramento...")
     start_background_thread()
-
-
-
-
