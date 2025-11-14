@@ -76,9 +76,9 @@ def trigger_alarm(label, alarm_time, mode):
 
 
 def check_alarms_loop(poll_seconds: int = 5):
-    """Thread separada que verifica os alarmes sem travar a API."""
-    print("⏰ Thread de monitoramento iniciada...")
+    print("🔥 THREAD RODANDO: check_alarms_loop começou de verdade!")
     while True:
+        print("🔁 Loop ativo — verificando alarmes...")
         try:
             now = datetime.now()
             now_str = now.strftime("%H:%M")
@@ -163,5 +163,6 @@ def start_background_thread():
 def start_thread():
     print("🚀 Iniciando thread de monitoramento (Render)...")
     start_background_thread()
+
 
 
