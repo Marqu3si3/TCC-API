@@ -67,39 +67,46 @@ def trigger_alarm(label, alarm_time, mode):
 
 
 def check_alarms_loop(poll_seconds: int = 5):
-    print("🔥 THREAD RODANDO DE VERDADE!")
+    print("🔥 THREAD RODANDO: check_alarms_loop começou de verdade!")
     while True:
-        print("🔁 Loop ativo — verificando alarmes...")
-        print("🕒 Horário local do servidor:", datetime.now())
-
         try:
-            now = datetime.now()
-            now_str = now.strftime("%H:%M")
-            today = WEEKDAY_MAP[now.weekday()]
+            print("🔁 Loop ativo — verificando alarmes...")
+            print("⏳ Buscando alarmes no Supabase...")
+            alarms = get_alarms()
+            print("📦 Alarmes recebidos:", alarms)
+
+            # horário local do servidor (UTC no Render)
+            now_utc = datetime.utcnow()
+            now_utc_str = now_utc.strftime("%H:%M")
+            weekday = WEEKDAY_MAP[now_utc.weekday()]
+
+            print("🕒 Horário UTC do servidor:", now_utc_str)
 
             for alarm in alarms:
-                alarm_time = alarm.get("time")
-                label = alarm.get("label") or f"Alarme {alarm_time}"
+                alarm_time_br = alarm.get("time")    # ex: "16:50"
+                
+                # converter horário BR -> UTC (-3 horas)
+                h, m = alarm_time_br.split(":")
+                h = (int(h) + 3) % 24   # BR -> UTC
+                alarm_time_utc = f"{h:02d}:{m}"
+
+                print(f"🕒 Alarme (BR): {alarm_time_br} → (UTC): {alarm_time_utc}")
+
                 days = alarm.get("days") or WEEKDAY_MAP
 
-                if today not in days:
-                    continue
+                if weekday in days:
+                    if alarm_time_utc == now_utc_str:
+                        trigger_alarm(
+                            alarm.get("label") or f"Alarme {alarm_time_br}",
+                            alarm_time_br,
+                            alarm.get("mode") or "short"
+                        )
 
-                # ==============================
-                # SOLUÇÃO 1 — intervalo de disparo de 60 segundos
-                # ==============================
-                alarm_dt = datetime.strptime(alarm_time, "%H:%M")
-                alarm_dt = now.replace(hour=alarm_dt.hour, minute=alarm_dt.minute, second=0, microsecond=0)
-
-                window_start = alarm_dt
-                window_end = alarm_dt + timedelta(seconds=59)
-
-                if window_start <= now <= window_end:
-                    trigger_alarm(label, alarm_time, alarm.get("mode"))
         except Exception as e:
             print(f"[ERRO] no loop de alarmes: {e}")
 
         time.sleep(poll_seconds)
+
 
 
 # ==============================
@@ -155,4 +162,5 @@ def start_background_thread():
 def start_thread():
     print("🚀 Iniciando thread de monitoramento...")
     start_background_thread()
+
 
