@@ -156,7 +156,12 @@ def start_background_thread():
     t.start()
 
 
-if __name__ == "__main__":
+# ==============================
+# FASTAPI EVENT — inicia thread no Render
+# ==============================
+@app.on_event("startup")
+def start_thread():
+    print("🚀 Iniciando thread de monitoramento (Render)...")
     start_background_thread()
-    import uvicorn
-    uvicorn.run("app:app", host="0.0.0.0", port=10000)
+
+
