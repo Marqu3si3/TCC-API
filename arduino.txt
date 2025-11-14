@@ -1,0 +1,67 @@
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
+
+const char* ssid = "POCO X3 Pro";
+const char* password = "Coracaodamorena";
+
+const char* url = "https://tcc-api-ezzp.onrender.com/estado-led";
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(2, OUTPUT);
+
+  Serial.println("Conectando ao WiFi...");
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nWiFi conectado!");
+  Serial.println(WiFi.localIP());
+}
+
+void loop() {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+
+    http.begin(url);
+    int httpCode = http.GET();
+
+    if (httpCode > 0) {
+      String payload = http.getString();
+      Serial.print("Resposta da API: ");
+      Serial.println(payload);
+
+      // === Parse JSON ===
+      StaticJsonDocument<200> doc;
+      DeserializationError error = deserializeJson(doc, payload);
+
+      if (!error) {
+        const char* estado = doc["led"];
+
+        if (strcmp(estado, "sim") == 0) {
+          digitalWrite(2, HIGH);
+          Serial.println("LED ON");
+        } else {
+          digitalWrite(2, LOW);
+          Serial.println("LED OFF");
+        }
+      } else {
+        Serial.println("Erro ao ler JSON!");
+      }
+
+    } else {
+      Serial.print("Erro HTTP: ");
+      Serial.println(httpCode);
+    }
+
+    http.end();
+  } else {
+    Serial.println("WiFi desconectado, tentando reconectar...");
+    WiFi.reconnect();
+  }
+
+  delay(100);  // consulta API a cada 5 segundos
+}
