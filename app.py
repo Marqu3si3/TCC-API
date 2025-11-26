@@ -1,6 +1,6 @@
 import time
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime
 from supabase import create_client, Client
 import platform
 from os import system
@@ -12,10 +12,9 @@ from typing import Literal
 # CONFIG SUPABASE
 # ==============================
 SUPABASE_URL = "https://sklnwhmaapcmdnfeijzi.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNrbG53aG1hYXBjbWRuZmVpanppIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg3MTMyNTAsImV4cCI6MjA3NDI4OTI1MH0.Rkj55NXXRa8Gc3TeZS6uXoFlskrRhU5pw3i8nI68Frs"
+SUPABASE_KEY = "SUA_CHAVE_AQUI"
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
 WEEKDAY_MAP = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
 # ==============================
@@ -24,143 +23,115 @@ WEEKDAY_MAP = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 estado_led = {"valor": "nao"}
 estado_lock = threading.Lock()
 
-
 # ==============================
-# UTILITÁRIAS
+# FUNÇÕES
 # ==============================
 def clear_terminal():
-    if platform.system() == "Windows":
-        system("cls")
-    else:
-        system("clear")
-
+    system("cls" if platform.system() == "Windows" else "clear")
 
 def get_alarms():
     try:
-        response = supabase.table("alarms").select("*").eq("enabled", True).execute()
-        return response.data if response.data else []
+        res = supabase.table("alarms").select("*").eq("enabled", True).execute()
+        return res.data or []
     except Exception as e:
-        print(f"[ERRO] ao buscar alarmes no supabase: {e}")
+        print("[ERRO] buscar alarmes:", e)
         return []
 
-
-# ==============================
-# LÓGICA DO ALARME
-# ==============================
 def set_estado(valor: str):
-    if valor not in ("sim", "nao"):
+    if valor not in ("curto", "longo", "repetido", "nao"):
+        print("[ERRO] Estado inválido:", valor)
         return False
     with estado_lock:
         estado_led["valor"] = valor
-    print(f"[ESTADO] led -> {valor}")
+    print("[ESTADO] led ->", valor)
     return True
 
-
-def trigger_alarm(label, alarm_time, mode):
-    print("\n" + "=" * 50)
-    print(f"🔥 ALERTA! Alarme '{label}' disparou ({alarm_time})")
-    print("=" * 50 + "\n")
-
-    set_estado("sim")
-    time.sleep(10)
+# ==============================
+# TIPOS DE DISPARO
+# ==============================
+def sinal_curto():
+    set_estado("curto")
+    time.sleep(2)
     set_estado("nao")
 
+def sinal_longo():
+    set_estado("longo")
+    time.sleep(5)
+    set_estado("nao")
 
-def check_alarms_loop(poll_seconds: int = 5):
-    print("🔥 THREAD RODANDO: check_alarms_loop começou de verdade!")
+def sinal_repetido():
+    # 1 minuto alternando LED ON/OFF no site
+    set_estado("repetido")
+    inicio = time.time()
+    while time.time() - inicio < 60:
+        print("🔔 (repeat) batendo...")
+        time.sleep(1)
+    set_estado("nao")
+
+# ==============================
+# THREAD DE ALARMES
+# ==============================
+def check_alarms_loop(poll_seconds=5):
+    print("🔥 THREAD DE ALARMES ONLINE!")
     while True:
-        try:
-            print("🔁 Loop ativo — verificando alarmes...")
-            print("⏳ Buscando alarmes no Supabase...")
-            alarms = get_alarms()
-            print("📦 Alarmes recebidos:", alarms)
+        now = datetime.utcnow()
+        now_str = now.strftime("%H:%M")
+        weekday = WEEKDAY_MAP[now.weekday()]
 
-            # horário local do servidor (UTC no Render)
-            now_utc = datetime.utcnow()
-            now_utc_str = now_utc.strftime("%H:%M")
-            weekday = WEEKDAY_MAP[now_utc.weekday()]
+        alarms = get_alarms()
+        print("\n📦 Alarmes:", alarms)
+        print("🕒 Agora (UTC):", now_str, "| Dia:", weekday)
 
-            print("🕒 Horário UTC do servidor:", now_utc_str)
+        for a in alarms:
+            t_br = a["time"]  # ex: "16:50"
+            h, m = t_br.split(":")
 
-            for alarm in alarms:
-                alarm_time_br = alarm.get("time")    # ex: "16:50"
-                
-                # converter horário BR -> UTC (-3 horas)
-                h, m = alarm_time_br.split(":")
-                h = (int(h) + 3) % 24   # BR -> UTC
-                alarm_time_utc = f"{h:02d}:{m}"
+            # converter BR (-3) → UTC
+            h_utc = (int(h) + 3) % 24
+            t_utc = f"{h_utc:02d}:{m}"
 
-                print(f"🕒 Alarme (BR): {alarm_time_br} → (UTC): {alarm_time_utc}")
+            print(f"⏰ Alarme {t_br} (BR) → {t_utc} (UTC)")
+            
+            if weekday in (a.get("days") or WEEKDAY_MAP):
+                if t_utc == now_str:
+                    print("🚨 BATEU NA HORA!")
+                    mode = a.get("mode", "short")
 
-                days = alarm.get("days") or WEEKDAY_MAP
-
-                if weekday in days:
-                    if alarm_time_utc == now_utc_str:
-                        trigger_alarm(
-                            alarm.get("label") or f"Alarme {alarm_time_br}",
-                            alarm_time_br,
-                            alarm.get("mode") or "short"
-                        )
-
-        except Exception as e:
-            print(f"[ERRO] no loop de alarmes: {e}")
+                    if mode == "short":
+                        sinal_curto()
+                    elif mode == "long":
+                        sinal_longo()
+                    elif mode == "repeat":
+                        sinal_repetido()
 
         time.sleep(poll_seconds)
-
-
 
 # ==============================
 # API FASTAPI
 # ==============================
 app = FastAPI()
 
-
 class EstadoRequest(BaseModel):
-    valor: Literal["sim", "nao"]
-
+    valor: Literal["curto", "longo", "repetido", "nao"]
 
 @app.get("/")
 def home():
-    return {"mensagem": "API de alarmes integrada com Supabase — responda /estado-led (sim/nao)"}
-
+    return {"mensagem": "Sistema de alarmes rodando"}
 
 @app.get("/estado-led")
 def get_estado_led():
     with estado_lock:
         return {"led": estado_led["valor"]}
 
-
 @app.post("/estado-led")
 def post_estado_led(req: EstadoRequest):
     ok = set_estado(req.valor)
-    if not ok:
-        return {"erro": "valor inválido"}
-    return {"mensagem": "estado atualizado", "novo_estado": req.valor}
-
-
-@app.get("/ligar")
-def ligar():
-    set_estado("sim")
-    return {"mensagem": "LED setado para sim"}
-
-
-@app.get("/desligar")
-def desligar():
-    set_estado("nao")
-    return {"mensagem": "LED setado para nao"}
-
+    return {"ok": ok, "estado": req.valor}
 
 # ==============================
-# THREAD DE FUNDO
+# STARTUP
 # ==============================
-def start_background_thread():
-    t = threading.Thread(target=check_alarms_loop, args=(5,), daemon=True)
-    t.start()
-
-
 @app.on_event("startup")
-def start_thread():
-    print("🚀 Iniciando thread de monitoramento...")
-    start_background_thread()
-
-
+def start_bg():
+    threading.Thread(target=check_alarms_loop, daemon=True).start()
+    print("🚀 Monitoramento iniciado!")
