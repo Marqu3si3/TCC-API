@@ -4,12 +4,18 @@
 
 const char* ssid = "POCO X3 Pro";
 const char* password = "Coracaodamorena";
-
 const char* url = "https://tcc-api-ezzp.onrender.com/estado-led";
+
+// Portas novas:
+const int LED_A = 25;  // pino 1 do LED bicolor
+const int LED_B = 26;  // pino 2 do LED bicolor
+const int BUZZER = 27;
 
 void setup() {
   Serial.begin(115200);
-  pinMode(2, OUTPUT);
+  pinMode(LED_A, OUTPUT);
+  pinMode(LED_B, OUTPUT);
+  pinMode(BUZZER, OUTPUT);
 
   Serial.println("Conectando ao WiFi...");
   WiFi.begin(ssid, password);
@@ -22,10 +28,29 @@ void setup() {
   Serial.println(WiFi.localIP());
 }
 
+void tocarBuzzerMax() {
+  // Toca no máximo (ligado direto, sem PWM = 100% duty)
+  digitalWrite(BUZZER, HIGH);
+}
+
+void pararBuzzer() {
+  digitalWrite(BUZZER, LOW);
+}
+
+void ligarLED() {
+  // Exemplo: acender a cor 1 (GPIO 25 = HIGH, 26 = LOW)
+  digitalWrite(LED_A, HIGH);
+  digitalWrite(LED_B, LOW);
+}
+
+void desligarLED() {
+  digitalWrite(LED_A, LOW);
+  digitalWrite(LED_B, LOW);
+}
+
 void loop() {
   if (WiFi.status() == WL_CONNECTED) {
     HTTPClient http;
-
     http.begin(url);
     int httpCode = http.GET();
 
@@ -34,34 +59,42 @@ void loop() {
       Serial.print("Resposta da API: ");
       Serial.println(payload);
 
-      // === Parse JSON ===
       StaticJsonDocument<200> doc;
-      DeserializationError error = deserializeJson(doc, payload);
-
-      if (!error) {
+      if (deserializeJson(doc, payload) == DeserializationError::Ok) {
         const char* estado = doc["led"];
 
-        if (strcmp(estado, "sim") == 0) {
-          digitalWrite(2, HIGH);
-          Serial.println("LED ON");
+        if (estado && strcmp(estado, "sim") == 0) {
+          if (digitalRead(LED_A) == LOW && digitalRead(LED_B) == LOW) {
+            // Só avisa e toca se estava desligado antes
+            Serial.println("🚨 ALARME ATIVO → LED ON + BUZZER TOCANDO!");
+            ligarLED();
+            tocarBuzzerMax();
+            delay(2000); // toca 2s no máximo
+            pararBuzzer();
+          } else {
+            // Continua LED ligado sem buzzer repetir
+            ligarLED();
+          }
         } else {
-          digitalWrite(2, LOW);
+          desligarLED();
+          pararBuzzer();
           Serial.println("LED OFF");
         }
+
       } else {
         Serial.println("Erro ao ler JSON!");
       }
-
     } else {
       Serial.print("Erro HTTP: ");
       Serial.println(httpCode);
     }
 
     http.end();
+    http.end();
   } else {
     Serial.println("WiFi desconectado, tentando reconectar...");
     WiFi.reconnect();
   }
 
-  delay(100);  // consulta API a cada 5 segundos
+  delay(5000);  // consulta a cada 5s de verdade
 }
